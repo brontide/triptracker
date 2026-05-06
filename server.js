@@ -15,13 +15,15 @@ const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
 const PORT = parseInt(process.env.PORT || '3000');
 const CAR_ID = process.env.CAR_ID || '2';
 const HISTORY_HOURS = parseInt(process.env.HISTORY_HOURS || '30');
+const NAV_PIN_DAYS  = parseInt(process.env.NAV_PIN_DAYS  || '10');
 const DB_PATH = process.env.DB_PATH || join(__dirname, 'history.db');
 const BASE_URL = process.env.BASE_URL;
 const TRIP_PATH = process.env.TRIP_PATH || crypto.randomBytes(9).toString('base64url').slice(0, 12);
 
 let vehicleName = 'Vehicle';
 
-const HISTORY_MS = HISTORY_HOURS * 60 * 60 * 1000;
+const HISTORY_MS  = HISTORY_HOURS * 60 * 60 * 1000;
+const NAV_PIN_MS  = NAV_PIN_DAYS  * 24 * 60 * 60 * 1000;
 
 // State
 const state = {
@@ -45,6 +47,8 @@ const state = {
 };
 
 let history = [];
+let navPins = [];
+let trackedDest = null;
 let pendingLat = null;
 let prevVehicleState = null;
 let startupGeocoded = false;
@@ -153,6 +157,7 @@ function buildPayload() {
     state: { ...state, vehicleState: effectiveState() },
     status: computeStatus(),
     history: decimateHistory(history),
+    navPins,
   });
 }
 
@@ -162,6 +167,13 @@ function broadcast() {
   for (const res of clients) {
     res.write(msg);
   }
+}
+
+function recordNavPin(lat, lon, name) {
+  if (lat === null || lon === null) return;
+  stmtNavPinInsert.run(lat, lon, name, Date.now());
+  stmtNavPinPrune.run(Date.now() - NAV_PIN_MS);
+  navPins = stmtNavPinLoad.all(Date.now() - NAV_PIN_MS);
 }
 
 async function reverseGeocode(lat, lon) {
@@ -195,15 +207,28 @@ db.exec(`
     ts  INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_positions_ts ON positions(ts);
+  CREATE TABLE IF NOT EXISTS nav_pins (
+    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    lat  REAL NOT NULL,
+    lon  REAL NOT NULL,
+    name TEXT,
+    ts   INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_nav_pins_ts ON nav_pins(ts);
 `);
 
 const stmtInsert = db.prepare('INSERT INTO positions (lat, lon, ts) VALUES (?, ?, ?)');
 const stmtPrune = db.prepare('DELETE FROM positions WHERE ts < ?');
 const stmtLoad = db.prepare('SELECT lat, lon, ts FROM positions WHERE ts > ? ORDER BY ts ASC');
 
+const stmtNavPinInsert = db.prepare('INSERT INTO nav_pins (lat, lon, name, ts) VALUES (?, ?, ?, ?)');
+const stmtNavPinPrune  = db.prepare('DELETE FROM nav_pins WHERE ts < ?');
+const stmtNavPinLoad   = db.prepare('SELECT lat, lon, name, ts FROM nav_pins WHERE ts > ? ORDER BY ts ASC');
+
 // Load history from DB
 const cutoff = Date.now() - HISTORY_MS;
 history = stmtLoad.all(cutoff);
+navPins = stmtNavPinLoad.all(Date.now() - NAV_PIN_MS);
 
 // Seed current position from last known DB row so map shows car on startup
 if (history.length > 0) {
@@ -321,6 +346,10 @@ mqttClient.on('message', (topic, message) => {
       let parsed;
       try { parsed = JSON.parse(raw); } catch { break; }
       if (!parsed || parsed.error !== null) {
+        if (trackedDest) {
+          recordNavPin(trackedDest.lat, trackedDest.lon, trackedDest.name);
+          trackedDest = null;
+        }
         state.destination = null;
         state.minutesETA = null;
         state.distanceMiles = null;
@@ -329,12 +358,25 @@ mqttClient.on('message', (topic, message) => {
         state.destLon = null;
         state.batteryAtArrival = null;
       } else {
-        state.destination = normalize(parsed.destination);
+        const newLat  = parsed.location?.latitude  ?? null;
+        const newLon  = parsed.location?.longitude ?? null;
+        const newName = normalize(parsed.destination);
+        if (trackedDest && newLat !== null && newLon !== null) {
+          const latDiff = Math.abs(newLat - trackedDest.lat);
+          const lonDiff = Math.abs(newLon - trackedDest.lon);
+          if (latDiff > 0.001 || lonDiff > 0.001) {
+            recordNavPin(trackedDest.lat, trackedDest.lon, trackedDest.name);
+            trackedDest = { lat: newLat, lon: newLon, name: newName };
+          }
+        } else if (!trackedDest && newLat !== null && newLon !== null) {
+          trackedDest = { lat: newLat, lon: newLon, name: newName };
+        }
+        state.destination = newName;
         state.minutesETA = parsed.minutes_to_arrival ?? null;
         state.distanceMiles = parsed.miles_to_arrival ?? null;
         state.trafficDelay = parsed.traffic_minutes_delay ?? null;
-        state.destLat = parsed.location?.latitude ?? null;
-        state.destLon = parsed.location?.longitude ?? null;
+        state.destLat = newLat;
+        state.destLon = newLon;
         state.batteryAtArrival = parsed.energy_at_arrival ?? null;
       }
       broadcast();

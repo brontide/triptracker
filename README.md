@@ -67,6 +67,7 @@ BASE_URL=http://localhost:8055
 | `CAR_ID` | `2` | TeslaMate car ID |
 | `TRIP_PATH` | random | URL slug for the share link — set this to something hard to guess |
 | `HISTORY_HOURS` | `30` | How many hours of position history to retain |
+| `NAV_PIN_DAYS` | `10` | Days to retain navigation destination pins on the map |
 | `BASE_URL` | — | Public base URL; used to print the full share link on startup |
 | `PORT` | `3000` | Internal HTTP port |
 | `DB_PATH` | `./history.db` | SQLite database path |

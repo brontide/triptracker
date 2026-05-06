@@ -244,6 +244,7 @@
 
     let marker = null;
     let destMarker = null;
+    const navPinLayer = L.layerGroup().addTo(map);
     let firstRender = true;
     let lastUpdate = null;
 
@@ -256,6 +257,18 @@
         className: '',
         iconSize: [24, 32],
         iconAnchor: [12, 32],
+      });
+    }
+
+    function makeHistNavPinIcon() {
+      return L.divIcon({
+        html: `<svg width="18" height="24" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20S24 21 24 12C24 5.373 18.627 0 12 0z" fill="#f5a623" opacity="0.45"/>
+          <circle cx="12" cy="12" r="5" fill="#fff" opacity="0.6"/>
+        </svg>`,
+        className: '',
+        iconSize: [18, 24],
+        iconAnchor: [9, 24],
       });
     }
 
@@ -343,6 +356,16 @@
       } else if (destMarker) {
         destMarker.remove();
         destMarker = null;
+      }
+
+      // Historical nav pins
+      navPinLayer.clearLayers();
+      for (const pin of (data.navPins || [])) {
+        const m = L.marker([pin.lat, pin.lon], { icon: makeHistNavPinIcon(), zIndexOffset: -200 });
+        const dateStr = pin.ts ? new Date(pin.ts).toLocaleDateString() : '';
+        const label = [pin.name, dateStr].filter(Boolean).join(' · ');
+        if (label) m.bindTooltip(label, { permanent: false, direction: 'top' });
+        m.addTo(navPinLayer);
       }
 
       // Update car marker
