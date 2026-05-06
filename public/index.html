@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trip Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&display=swap" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: #0a0c14;
+      color: rgba(255,255,255,0.92);
+    }
+
+    #map {
+      position: absolute;
+      top: 0; right: 0; bottom: 0; left: 0;
+    }
+
+    #banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 18px;
+      background: rgba(10, 12, 20, 0.82);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      min-height: 44px;
+    }
+
+    #banner-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    #pill {
+      flex-shrink: 0;
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0 9px;
+      min-width: 30px;
+      border-radius: 4px;
+    }
+
+    #status-text {
+      font-size: 14px;
+      color: rgba(255,255,255,0.92);
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    #status-text .status-line1 {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #status-text .status-line2 {
+      font-size: 12px;
+      color: rgba(255,255,255,0.55);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #status-text .dest {
+      font-weight: 600;
+      color: #fff;
+    }
+
+    #status-text .dim {
+      color: rgba(255,255,255,0.6);
+      font-size: 13px;
+    }
+
+    #status-text .offline {
+      color: rgba(255,255,255,0.35);
+    }
+
+    .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #5de89e;
+      margin-right: 5px;
+      vertical-align: middle;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    #banner-right {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex-shrink: 0;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      padding: 0 16px;
+      border-left: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .stat:first-child {
+      border-left: none;
+    }
+
+    .stat-label {
+      font-size: 10px;
+      color: rgba(255,255,255,0.35);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      line-height: 1.2;
+    }
+
+    .stat-value {
+      font-size: 15px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.88);
+      line-height: 1.2;
+    }
+
+    .stat-unit {
+      font-size: 11px;
+      color: rgba(255,255,255,0.45);
+    }
+
+    #updated {
+      font-size: 11px;
+      color: rgba(255,255,255,0.25);
+      padding: 0 0 0 16px;
+      border-left: 1px solid rgba(255,255,255,0.1);
+      white-space: nowrap;
+    }
+
+    @media (max-width: 600px) {
+      #banner {
+        flex-wrap: wrap;
+        padding: 8px 12px;
+        gap: 0;
+      }
+      #banner-left {
+        flex: 1 1 100%;
+        padding-bottom: 6px;
+      }
+      #banner-right {
+        flex: 1 1 100%;
+        justify-content: flex-start;
+        padding-top: 6px;
+        border-top: 1px solid rgba(255,255,255,0.07);
+      }
+      .stat:first-child {
+        padding-left: 0;
+        border-left: none;
+      }
+      .stat {
+        align-items: flex-start;
+      }
+      #updated {
+        margin-left: auto;
+        border-left: none;
+        padding-left: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="banner">
+    <div id="banner-left">
+      <div id="pill">—</div>
+      <div id="status-text"></div>
+    </div>
+    <div id="banner-right">
+      <div class="stat" id="stat-speed" style="display:none">
+        <div class="stat-label">Speed</div>
+        <div class="stat-value"><span id="val-speed">—</span> <span class="stat-unit">mph</span></div>
+      </div>
+      <div class="stat" id="stat-battery" style="display:none">
+        <div class="stat-label">Battery</div>
+        <div class="stat-value"><span id="val-battery">—</span> <span class="stat-unit">%</span></div>
+      </div>
+      <div id="updated">—</div>
+    </div>
+  </div>
+
+  <script>
+    const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 5);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    const polyline = L.polyline([], {
+      color: '#4a9eff',
+      weight: 2.5,
+      opacity: 0.65,
+    }).addTo(map);
+
+    function makeMarkerIcon(heading) {
+      const deg = heading || 0;
+      return L.divIcon({
+        html: `<svg width="28" height="28" style="transform:rotate(${deg}deg);display:block" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="14" cy="14" r="13" fill="rgba(227,25,55,0.18)" stroke="#e31937" stroke-width="1.5"/>
+          <polygon points="14,4 18,20 14,17 10,20" fill="#e31937"/>
+        </svg>`,
+        className: '',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+    }
+
+    let marker = null;
+    let destMarker = null;
+    let firstRender = true;
+    let lastUpdate = null;
+
+    function makeDestIcon() {
+      return L.divIcon({
+        html: `<svg width="24" height="32" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 0C5.373 0 0 5.373 0 12c0 9 12 20 12 20S24 21 24 12C24 5.373 18.627 0 12 0z" fill="#f5a623" opacity="0.9"/>
+          <circle cx="12" cy="12" r="5" fill="#fff" opacity="0.95"/>
+        </svg>`,
+        className: '',
+        iconSize: [24, 32],
+        iconAnchor: [12, 32],
+      });
+    }
+
+    function pillStyle(vs) {
+      if (vs === 'driving') return {
+        background: 'rgba(227,25,55,0.18)',
+        color: '#ff4d6a',
+        border: '1px solid rgba(227,25,55,0.35)',
+        text: 'D',
+      };
+      if (vs === 'charging') return {
+        background: 'rgba(80,220,140,0.15)',
+        color: '#5de89e',
+        border: '1px solid rgba(80,220,140,0.3)',
+        text: 'C',
+      };
+      return {
+        background: 'rgba(74,158,255,0.15)',
+        color: '#6ab4ff',
+        border: '1px solid rgba(74,158,255,0.3)',
+        text: vs === 'parked' ? 'P' : 'OFFLINE',
+      };
+    }
+
+    function formatETA(minutesFromNow) {
+      const d = new Date(Date.now() + minutesFromNow * 60 * 1000);
+      let h = d.getHours();
+      const m = d.getMinutes().toString().padStart(2, '0');
+      const ampm = h >= 12 ? 'pm' : 'am';
+      h = h % 12 || 12;
+      return `${h}:${m} ${ampm}`;
+    }
+
+    function renderStatus(s, statusText) {
+      const pill = document.getElementById('pill');
+      const statusEl = document.getElementById('status-text');
+      const vs = s.vehicleState;
+
+      const style = pillStyle(vs);
+      pill.textContent = style.text;
+      pill.style.background = style.background;
+      pill.style.color = style.color;
+      pill.style.border = style.border;
+
+      if (!vs || vs === 'asleep' || vs === 'offline' || vs === 'online') {
+        statusEl.innerHTML = `<span class="offline">${statusText}</span>`;
+      } else if (vs === 'driving' && s.destination) {
+        const details = [];
+        if (s.speed != null) details.push(`${Math.round(s.speed)} mph`);
+        if (s.battery != null && s.batteryAtArrival != null) details.push(`${s.battery}%→${Math.round(s.batteryAtArrival)}%`);
+        else if (s.battery != null) details.push(`${s.battery}%`);
+        if (s.distanceMiles != null) details.push(`${s.distanceMiles.toFixed(1)} mi`);
+        if (s.minutesETA != null) details.push(`ETA ${formatETA(s.minutesETA)}`);
+        if (s.trafficDelay != null && s.trafficDelay >= 2) details.push(`+${Math.round(s.trafficDelay)} min traffic`);
+        statusEl.innerHTML =
+          `<div class="status-line1"><span class="dot"></span><span class="dest">${s.destination}</span></div>` +
+          (details.length ? `<div class="status-line2">${details.join(' · ')}</div>` : '');
+      } else if (vs === 'driving') {
+        statusEl.innerHTML = `<span class="dot"></span>${statusText}`;
+      } else if (vs === 'charging') {
+        statusEl.innerHTML = `<span class="dot" style="background:#5de89e"></span>${statusText.replace('Charging · ', '')}`;
+      } else {
+        statusEl.textContent = statusText;
+      }
+    }
+
+    function render(data) {
+      const s = data.state;
+      const hist = data.history || [];
+
+      // Update map polyline
+      if (hist.length > 0) {
+        polyline.setLatLngs(hist.map(p => [p.lat, p.lon]));
+      }
+
+      // Destination pin
+      if (s.destLat !== null && s.destLon !== null) {
+        const dpos = [s.destLat, s.destLon];
+        if (!destMarker) {
+          destMarker = L.marker(dpos, { icon: makeDestIcon(), zIndexOffset: -100 }).addTo(map);
+          if (s.destination) destMarker.bindTooltip(s.destination, { permanent: false, direction: 'top' });
+        } else {
+          destMarker.setLatLng(dpos);
+        }
+      } else if (destMarker) {
+        destMarker.remove();
+        destMarker = null;
+      }
+
+      // Update car marker
+      if (s.lat !== null && s.lon !== null) {
+        const pos = [s.lat, s.lon];
+        if (!marker) {
+          marker = L.marker(pos, { icon: makeMarkerIcon(s.heading) }).addTo(map);
+        } else {
+          marker.setLatLng(pos);
+          marker.setIcon(makeMarkerIcon(s.heading));
+        }
+        map.panTo(pos);
+
+        if (firstRender) {
+          firstRender = false;
+          const points = [];
+          if (hist.length >= 2) points.push(...polyline.getLatLngs());
+          else points.push(pos);
+          if (destMarker) points.push(destMarker.getLatLng());
+          if (points.length >= 2) {
+            map.fitBounds(L.latLngBounds(points), { padding: [40, 40] });
+          } else {
+            map.setView(pos, 10);
+          }
+        }
+      }
+
+      // Banner status
+      renderStatus(s, data.status);
+
+      // Speed stat
+      const isNavDriving = s.vehicleState === 'driving' && s.destination;
+
+      const speedStat = document.getElementById('stat-speed');
+      if (!isNavDriving && s.vehicleState === 'driving' && s.speed !== null) {
+        speedStat.style.display = '';
+        document.getElementById('val-speed').textContent = Math.round(s.speed);
+      } else {
+        speedStat.style.display = 'none';
+      }
+
+      // Battery stat
+      const battStat = document.getElementById('stat-battery');
+      if (!isNavDriving && s.battery !== null) {
+        battStat.style.display = '';
+        document.getElementById('val-battery').textContent = s.battery;
+      } else {
+        battStat.style.display = 'none';
+      }
+
+      if (data.vehicleName) document.title = data.vehicleName;
+      lastUpdate = Date.now();
+    }
+
+    // "Updated X ago" counter
+    setInterval(() => {
+      const el = document.getElementById('updated');
+      if (lastUpdate === null) { el.textContent = ''; return; }
+      const secs = Math.floor((Date.now() - lastUpdate) / 1000);
+      if (secs < 5) el.textContent = 'Just updated';
+      else if (secs < 60) el.textContent = `Updated ${secs}s ago`;
+      else el.textContent = `Updated ${Math.floor(secs / 60)}m ago`;
+    }, 1000);
+
+    // SSE
+    function connect() {
+      const eventsUrl = location.pathname.replace(/\/$/, '') + '/events';
+      const es = new EventSource(eventsUrl);
+      es.onmessage = (e) => {
+        try {
+          render(JSON.parse(e.data));
+        } catch {}
+      };
+      es.onerror = () => {
+        es.close();
+        setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
