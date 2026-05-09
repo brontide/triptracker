@@ -431,19 +431,47 @@
     }, 1000);
 
     // SSE
+    let esConnection = null;
+
     function connect() {
+      if (esConnection) { esConnection.close(); esConnection = null; }
+      if (document.hidden) return;
+
       const eventsUrl = location.pathname.replace(/\/$/, '') + '/events';
+      let lastActivity = Date.now();
       const es = new EventSource(eventsUrl);
+      esConnection = es;
+
       es.onmessage = (e) => {
-        try {
-          render(JSON.parse(e.data));
-        } catch {}
+        lastActivity = Date.now();
+        try { render(JSON.parse(e.data)); } catch {}
       };
+
+      es.addEventListener('ping', () => { lastActivity = Date.now(); });
+
       es.onerror = () => {
         es.close();
-        setTimeout(connect, 3000);
+        esConnection = null;
+        if (!document.hidden) setTimeout(connect, 3000);
       };
+
+      const watchdog = setInterval(() => {
+        if (document.hidden || Date.now() - lastActivity > 60000) {
+          clearInterval(watchdog);
+          es.close();
+          esConnection = null;
+          if (!document.hidden) connect();
+        }
+      }, 15000);
     }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        if (esConnection) { esConnection.close(); esConnection = null; }
+      } else {
+        connect();
+      }
+    });
 
     connect();
   </script>

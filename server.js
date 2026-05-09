@@ -16,6 +16,7 @@ const PORT = parseInt(process.env.PORT || '3000');
 const CAR_ID = process.env.CAR_ID || '2';
 const HISTORY_HOURS = parseInt(process.env.HISTORY_HOURS || '30');
 const NAV_PIN_DAYS  = parseInt(process.env.NAV_PIN_DAYS  || '10');
+const NAV_ARRIVAL_MILES = parseFloat(process.env.NAV_ARRIVAL_MILES || '10');
 const DB_PATH = process.env.DB_PATH || join(__dirname, 'history.db');
 const BASE_URL = process.env.BASE_URL;
 const TRIP_PATH = process.env.TRIP_PATH || crypto.randomBytes(9).toString('base64url').slice(0, 12);
@@ -167,6 +168,29 @@ function broadcast() {
   for (const res of clients) {
     res.write(msg);
   }
+}
+
+setInterval(() => {
+  for (const res of clients) {
+    res.write('event:ping\ndata:\n\n');
+  }
+}, 25000);
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function withinArrivalThreshold(destLat, destLon) {
+  if (state.distanceMiles !== null) return state.distanceMiles <= NAV_ARRIVAL_MILES;
+  if (state.lat !== null && state.lon !== null) {
+    return haversineMiles(state.lat, state.lon, destLat, destLon) <= NAV_ARRIVAL_MILES;
+  }
+  return false;
 }
 
 function recordNavPin(lat, lon, name) {
@@ -347,7 +371,9 @@ mqttClient.on('message', (topic, message) => {
       try { parsed = JSON.parse(raw); } catch { break; }
       if (!parsed || parsed.error !== null) {
         if (trackedDest) {
-          recordNavPin(trackedDest.lat, trackedDest.lon, trackedDest.name);
+          if (withinArrivalThreshold(trackedDest.lat, trackedDest.lon)) {
+            recordNavPin(trackedDest.lat, trackedDest.lon, trackedDest.name);
+          }
           trackedDest = null;
         }
         state.destination = null;
@@ -365,7 +391,9 @@ mqttClient.on('message', (topic, message) => {
           const latDiff = Math.abs(newLat - trackedDest.lat);
           const lonDiff = Math.abs(newLon - trackedDest.lon);
           if (latDiff > 0.001 || lonDiff > 0.001) {
-            recordNavPin(trackedDest.lat, trackedDest.lon, trackedDest.name);
+            if (withinArrivalThreshold(trackedDest.lat, trackedDest.lon)) {
+              recordNavPin(trackedDest.lat, trackedDest.lon, trackedDest.name);
+            }
             trackedDest = { lat: newLat, lon: newLon, name: newName };
           }
         } else if (!trackedDest && newLat !== null && newLon !== null) {
